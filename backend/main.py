@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from ingest import ingest_all, retrieve
 from ai_core_client import call_ai_core_llm
+import uvicorn
 
 app = FastAPI()
 
@@ -8,6 +9,15 @@ app = FastAPI()
 def is_comparison_question(q: str) -> bool:
     keywords = ["compare", "difference", "vs", "versus"]
     return any(k in q.lower() for k in keywords)
+
+
+def is_greeting(q: str) -> bool:
+    greetings = [
+        "hi", "hello", "hey",
+        "good morning", "good afternoon", "good evening"
+    ]
+    q = q.lower().strip()
+    return q in greetings or any(q.startswith(g) for g in greetings)
 
 
 def extract_entities_for_comparison(q: str):
@@ -26,17 +36,26 @@ def startup_event():
 
 @app.get("/getData")
 async def dataCAll():
-    return "heloo data"
+    return "hello data"
 
 
 @app.post("/query")
 async def query(q: dict):
-    question = q["question"]
+    question = q.get("question", "").strip()
+
+    if not question:
+        return {"answer": "Please ask a valid question."}
+
+    # 🔹 GREETING HANDLER (BEFORE RAG)
+    if is_greeting(question):
+        return {
+            "answer": "Welcome. This is Sierra Digital's AI Assistant. How may I help you?"
+        }
 
     # 🔹 Entity detection
     entities = extract_entities_for_comparison(question.lower())
 
-    # 🔹 Primary semantic retrieval (RAW question – no spell correction)
+    # 🔹 Primary semantic retrieval
     chunks = retrieve(question, k=10)
 
     # 🔹 Section / heading boosting
@@ -52,7 +71,7 @@ async def query(q: dict):
         if kw in question.lower():
             chunks.extend(retrieve(kw, k=3))
 
-    # 🔹 Entity boosting (semantic)
+    # 🔹 Entity boosting
     for ent in entities:
         chunks.extend(retrieve(ent, k=3))
 
@@ -89,3 +108,12 @@ Answer clearly and cite source file names if possible.
     answer = call_ai_core_llm(rag_prompt)
     return {"answer": answer}
 
+
+# 🔹 RUN OPTION
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
